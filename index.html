@@ -244,7 +244,9 @@
               nodeMeshes[i].position,
               nodeMeshes[j].position
             ]);
-            scene.add(new THREE.Line(geometry, material));
+            const line = new THREE.Line(geometry, material);
+            line.renderOrder = -1;
+            scene.add(line);
           }
         }
       }
