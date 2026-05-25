@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🧠 Brain Visual</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0f; color: #fff; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+
+    .screen {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      justify-content: center; align-items: center; gap: 16px; z-index: 100;
+      background: #0a0a0f;
+    }
+    .screen h2 { font-size: 24px; color: #7eb8f7; margin-bottom: 8px; }
+    .screen input {
+      padding: 12px 16px; border-radius: 8px; border: 1px solid #2b3240;
+      background: #171b23; color: #fff; font-size: 14px; width: 300px; outline: none;
+    }
+    .screen input:focus { border-color: #4f8cff; }
+    .screen button {
+      padding: 12px 24px; border-radius: 8px; border: none;
+      background: #4f8cff; color: #fff; font-size: 14px; font-weight: 600;
+      cursor: pointer; width: 300px;
+    }
+    .screen button:hover { background: #3f79e0; }
+    .screen .error { color: #ff6b6b; font-size: 13px; }
+
+    #hidden { display: none !important; }
+
+    #file-panel {
+      position: fixed; top: 20px; right: 20px; width: 320px; max-height: 80vh;
+      background: rgba(10,10,20,0.92); border: 1px solid #2b3240;
+      border-radius: 12px; padding: 16px; overflow-y: auto; z-index: 50;
+      display: none;
+    }
+    #file-panel h3 { color: #7eb8f7; margin-bottom: 8px; font-size: 15px; }
+    #file-panel pre { font-size: 11px; color: #cdd6e1; white-space: pre-wrap; word-break: break-word; }
+
+    #legend {
+      position: fixed; bottom: 20px; left: 20px; z-index: 50;
+      background: rgba(10,10,20,0.85); border-radius: 10px; padding: 12px 16px;
+      font-size: 12px; border: 1px solid #2b3240;
+    }
+    #legend div { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    #legend span { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+
+    #loading {
+      position: fixed; inset: 0; display: flex; justify-content: center;
+      align-items: center; background: #0a0a0f; z-index: 90; color: #7eb8f7; font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Password Screen -->
+  <div class="screen" id="password-screen">
+    <h2>🧠 Brain Visual</h2>
+    <input type="password" id="password-input" placeholder="Enter password" />
+    <button onclick="checkPassword()">Unlock</button>
+    <div class="error" id="pass-error"></div>
+  </div>
+
+  <!-- Token Screen -->
+  <div class="screen" id="token-screen" class="hidden">
+    <h2>GitHub Token</h2>
+    <p style="color:#a8b0bc;font-size:13px;text-align:center;width:300px">Enter your GitHub Personal Access Token to connect to brain.v1</p>
+    <input type="password" id="token-input" placeholder="ghp_xxxxxxxxxxxx" />
+    <button onclick="saveToken()">Connect Brain</button>
+  </div>
+
+  <!-- Loading -->
+  <div id="loading" style="display:none">Loading Brain nodes...</div>
+
+  <!-- File Panel -->
+  <div id="file-panel">
+    <h3 id="panel-filename"></h3>
+    <pre id="panel-content">Loading...</pre>
+  </div>
+
+  <!-- Legend -->
+  <div id="legend" style="display:none">
+    <div><span style="background:#ff6b6b"></span> thoughts</div>
+    <div><span style="background:#6bff9e"></span> ideas</div>
+    <div><span style="background:#6b9eff"></span> projects</div>
+    <div><span style="background:#ffe06b"></span> logs</div>
+    <div><span style="background:#d06bff"></span> context</div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    const HASH = "fb9df348d84c7e50459d13e90fc761284f1809eb2502227fdd68ecdb081a4816";
+    const TOKEN_KEY = "brain_token";
+    const REPO = "Skully232/brain.v1";
+    const FOLDERS = ["thoughts","ideas","projects","logs","context"];
+    const COLORS = { thoughts:"#ff6b6b", ideas:"#6bff9e", projects:"#6b9eff", logs:"#ffe06b", context:"#d06bff" };
+
+    let scene, camera, renderer, raycaster, mouse;
+    let nodeMeshes = [];
+
+    // --- Password ---
+    async function checkPassword() {
+      const val = document.getElementById("password-input").value;
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(val));
+      const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
+      if (hash === HASH) {
+        hide("password-screen");
+        checkToken();
+      } else {
+        document.getElementById("pass-error").textContent = "Incorrect password!";
+      }
+    }
+
+    document.getElementById("password-input").addEventListener("keydown", e => {
+      if (e.key === "Enter") checkPassword();
+    });
+
+    // --- Token ---
+    function checkToken() {
+      const token = localStorage.getItem(TOKEN_KEY);
+      if (!token) { show("token-screen"); return; }
+      loadBrain(token);
+    }
+
+    function saveToken() {
+      const token = document.getElementById("token-input").value.trim();
+      if (!token) return;
+      localStorage.setItem(TOKEN_KEY, token);
+      hide("token-screen");
+      loadBrain(token);
+    }
+
+    document.getElementById("token-input").addEventListener("keydown", e => {
+      if (e.key === "Enter") saveToken();
+    });
+
+    // --- Fetch files ---
+    async function fetchFolder(token, folder) {
+      const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${folder}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" }
+      });
+      if (!res.ok) return [];
+      const items = await res.json();
+      return items.filter(f => f.type === "file" && !f.name.startsWith("."));
+    }
+
+    async function loadBrain(token) {
+      show("loading");
+      initScene();
+
+      for (const folder of FOLDERS) {
+        const files = await fetchFolder(token, folder);
+        for (const file of files) {
+          addNode(file, folder, token);
+        }
+      }
+
+      hide("loading");
+      show("legend");
+      animate();
+    }
+
+    // --- Three.js ---
+    function initScene() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 1000);
+      camera.position.z = 30;
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(devicePixelRatio);
+      document.body.appendChild(renderer.domElement);
+
+      // Ambient light
+      scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+      const pLight = new THREE.PointLight(0x7eb8f7, 1, 100);
+      pLight.position.set(0,0,20);
+      scene.add(pLight);
+
+      raycaster = new THREE.Raycaster();
+      mouse = new THREE.Vector2();
+
+      // Drag to rotate
+      let isDragging = false, prevX = 0, prevY = 0;
+      renderer.domElement.addEventListener("mousedown", e => { isDragging = true; prevX = e.clientX; prevY = e.clientY; });
+      renderer.domElement.addEventListener("mouseup", () => isDragging = false);
+      renderer.domElement.addEventListener("mousemove", e => {
+        if (isDragging) {
+          scene.rotation.y += (e.clientX - prevX) * 0.005;
+          scene.rotation.x += (e.clientY - prevY) * 0.005;
+          prevX = e.clientX; prevY = e.clientY;
+        }
+        mouse.x = (e.clientX / innerWidth) * 2 - 1;
+        mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+      });
+
+      // Scroll to zoom
+      renderer.domElement.addEventListener("wheel", e => {
+        camera.position.z = Math.max(10, Math.min(60, camera.position.z + e.deltaY * 0.05));
+      });
+
+      renderer.domElement.addEventListener("click", onNodeClick);
+      window.addEventListener("resize", () => {
+        camera.aspect = innerWidth/innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+    }
+
+    function addNode(file, folder, token) {
+      const color = COLORS[folder] || "#ffffff";
+      const geo = new THREE.SphereGeometry(0.6, 16, 16);
+      const mat = new THREE.MeshPhongMaterial({ color, emissive: color, emissiveIntensity: 0.3, transparent: true, opacity: 0.85 });
+      const mesh = new THREE.Mesh(geo, mat);
+
+      // Spread in sphere shape
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 8 + Math.random() * 8;
+      mesh.position.set(
+        r * Math.sin(phi) * Math.cos(theta),
+        r * Math.sin(phi) * Math.sin(theta),
+        r * Math.cos(phi)
+      );
+
+      mesh.userData = { file, folder, token };
+      scene.add(mesh);
+      nodeMeshes.push(mesh);
+    }
+
+    function onNodeClick() {
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(nodeMeshes);
+      if (!hits.length) { document.getElementById("file-panel").style.display = "none"; return; }
+      const { file, token } = hits[0].object.userData;
+      const panel = document.getElementById("file-panel");
+      document.getElementById("panel-filename").textContent = file.name;
+      document.getElementById("panel-content").textContent = "Loading...";
+      panel.style.display = "block";
+      fetch(file.download_url, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.text())
+        .then(text => { document.getElementById("panel-content").textContent = text; });
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      // Gentle auto-rotation
+      scene.rotation.y += 0.001;
+      renderer.render(scene, camera);
+    }
+
+    function show(id) { document.getElementById(id).style.display = "flex"; }
+    function hide(id) { document.getElementById(id).style.display = "none"; }
+  </script>
+</body>
+</html>
