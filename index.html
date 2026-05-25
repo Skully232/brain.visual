@@ -7,7 +7,6 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #0a0a0f; color: #fff; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
-
     .screen {
       position: fixed; inset: 0; display: flex; flex-direction: column;
       justify-content: center; align-items: center; gap: 16px; z-index: 100;
@@ -26,9 +25,6 @@
     }
     .screen button:hover { background: #3f79e0; }
     .screen .error { color: #ff6b6b; font-size: 13px; }
-
-    #hidden { display: none !important; }
-
     #file-panel {
       position: fixed; top: 20px; right: 20px; width: 320px; max-height: 80vh;
       background: rgba(10,10,20,0.92); border: 1px solid #2b3240;
@@ -37,7 +33,6 @@
     }
     #file-panel h3 { color: #7eb8f7; margin-bottom: 8px; font-size: 15px; }
     #file-panel pre { font-size: 11px; color: #cdd6e1; white-space: pre-wrap; word-break: break-word; }
-
     #legend {
       position: fixed; bottom: 20px; left: 20px; z-index: 50;
       background: rgba(10,10,20,0.85); border-radius: 10px; padding: 12px 16px;
@@ -45,7 +40,6 @@
     }
     #legend div { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
     #legend span { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
-
     #loading {
       position: fixed; inset: 0; display: flex; justify-content: center;
       align-items: center; background: #0a0a0f; z-index: 90; color: #7eb8f7; font-size: 18px;
@@ -54,7 +48,6 @@
 </head>
 <body>
 
-  <!-- Password Screen -->
   <div class="screen" id="password-screen">
     <h2>🧠 Brain Visual</h2>
     <input type="password" id="password-input" placeholder="Enter password" />
@@ -62,24 +55,20 @@
     <div class="error" id="pass-error"></div>
   </div>
 
-  <!-- Token Screen -->
-  <div class="screen" id="token-screen" class="hidden">
+  <div class="screen" id="token-screen" style="display:none">
     <h2>GitHub Token</h2>
     <p style="color:#a8b0bc;font-size:13px;text-align:center;width:300px">Enter your GitHub Personal Access Token to connect to brain.v1</p>
     <input type="password" id="token-input" placeholder="ghp_xxxxxxxxxxxx" />
     <button onclick="saveToken()">Connect Brain</button>
   </div>
 
-  <!-- Loading -->
   <div id="loading" style="display:none">Loading Brain nodes...</div>
 
-  <!-- File Panel -->
   <div id="file-panel">
     <h3 id="panel-filename"></h3>
     <pre id="panel-content">Loading...</pre>
   </div>
 
-  <!-- Legend -->
   <div id="legend" style="display:none">
     <div><span style="background:#ff6b6b"></span> thoughts</div>
     <div><span style="background:#6bff9e"></span> ideas</div>
@@ -117,36 +106,33 @@
     });
 
     // --- Token ---
-      function checkToken() {
-      // Check URL hash first
-        const hashToken = window.location.hash.slice(1);
-        if (hashToken) {
-          localStorage.setItem(TOKEN_KEY, hashToken);
-          document.cookie = `${TOKEN_KEY}=${hashToken};max-age=${30*24*60*60};path=/;SameSite=Strict`;
-          window.location.hash = ""; // Clear from URL for security
-          loadBrain(hashToken);
-          return;
-        }
-        let token = localStorage.getItem(TOKEN_KEY);
-        if (!token) {
-          const match = document.cookie.match(new RegExp(TOKEN_KEY + '=([^;]+)'));
-          if (match) token = match[1];
-        }
-        if (!token) { show("token-screen"); return; }
-        loadBrain(token);
+    function checkToken() {
+      const hashToken = window.location.hash.slice(1);
+      if (hashToken) {
+        localStorage.setItem(TOKEN_KEY, hashToken);
+        document.cookie = `${TOKEN_KEY}=${hashToken};max-age=${30*24*60*60};path=/;SameSite=Strict`;
+        window.location.hash = "";
+        loadBrain(hashToken);
+        return;
       }
+      let token = localStorage.getItem(TOKEN_KEY);
+      if (!token) {
+        const match = document.cookie.match(new RegExp(TOKEN_KEY + '=([^;]+)'));
+        if (match) token = match[1];
+      }
+      if (!token) { show("token-screen"); return; }
+      loadBrain(token);
+    }
 
     function saveToken() {
       const token = document.getElementById("token-input").value.trim();
       if (!token) return;
-      try {
-        localStorage.setItem(TOKEN_KEY, token);
-      } catch(e) {}
+      try { localStorage.setItem(TOKEN_KEY, token); } catch(e) {}
       document.cookie = `${TOKEN_KEY}=${token};max-age=${30*24*60*60};path=/;SameSite=Strict`;
       hide("token-screen");
       loadBrain(token);
     }
-    
+
     document.getElementById("token-input").addEventListener("keydown", e => {
       if (e.key === "Enter") saveToken();
     });
@@ -164,17 +150,15 @@
     async function loadBrain(token) {
       show("loading");
       initScene();
-
       for (const folder of FOLDERS) {
         const files = await fetchFolder(token, folder);
         for (const file of files) {
           addNode(file, folder, token);
         }
       }
-
+      drawConnections();
       hide("loading");
       show("legend");
-      drawConnections();
       animate();
     }
 
@@ -183,22 +167,16 @@
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 1000);
       camera.position.z = 30;
-
       renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(innerWidth, innerHeight);
       renderer.setPixelRatio(devicePixelRatio);
       document.body.appendChild(renderer.domElement);
-
-      // Ambient light
       scene.add(new THREE.AmbientLight(0xffffff, 0.5));
       const pLight = new THREE.PointLight(0x7eb8f7, 1, 100);
       pLight.position.set(0,0,20);
       scene.add(pLight);
-
       raycaster = new THREE.Raycaster();
       mouse = new THREE.Vector2();
-
-      // Drag to rotate
       let isDragging = false, prevX = 0, prevY = 0;
       renderer.domElement.addEventListener("mousedown", e => { isDragging = true; prevX = e.clientX; prevY = e.clientY; });
       renderer.domElement.addEventListener("mouseup", () => isDragging = false);
@@ -211,12 +189,9 @@
         mouse.x = (e.clientX / innerWidth) * 2 - 1;
         mouse.y = -(e.clientY / innerHeight) * 2 + 1;
       });
-
-      // Scroll to zoom
       renderer.domElement.addEventListener("wheel", e => {
         camera.position.z = Math.max(10, Math.min(60, camera.position.z + e.deltaY * 0.05));
       });
-
       renderer.domElement.addEventListener("click", onNodeClick);
       window.addEventListener("resize", () => {
         camera.aspect = innerWidth/innerHeight;
@@ -230,16 +205,25 @@
       const geo = new THREE.SphereGeometry(0.6, 16, 16);
       const mat = new THREE.MeshPhongMaterial({ color, emissive: color, emissiveIntensity: 0.3, transparent: true, opacity: 0.85 });
       const mesh = new THREE.Mesh(geo, mat);
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 8 + Math.random() * 8;
+      mesh.position.set(
+        r * Math.sin(phi) * Math.cos(theta),
+        r * Math.sin(phi) * Math.sin(theta),
+        r * Math.cos(phi)
+      );
+      mesh.userData = { file, folder, token };
+      scene.add(mesh);
+      nodeMeshes.push(mesh);
+    }
 
     function drawConnections() {
-      const material = new THREE.LineBasicMaterial({ 
-        color: 0x4f8cff, transparent: true, opacity: 0.15 
-      });
-  
+      const material = new THREE.LineBasicMaterial({ color: 0x4f8cff, transparent: true, opacity: 0.15 });
       for (let i = 0; i < nodeMeshes.length; i++) {
         for (let j = i + 1; j < nodeMeshes.length; j++) {
           const dist = nodeMeshes[i].position.distanceTo(nodeMeshes[j].position);
-          if (dist < 12) { // Only connect nearby nodes
+          if (dist < 12) {
             const geometry = new THREE.BufferGeometry().setFromPoints([
               nodeMeshes[i].position,
               nodeMeshes[j].position
@@ -250,20 +234,6 @@
           }
         }
       }
-    }
-      // Spread in sphere shape
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-      const r = 8 + Math.random() * 8;
-      mesh.position.set(
-        r * Math.sin(phi) * Math.cos(theta),
-        r * Math.sin(phi) * Math.sin(theta),
-        r * Math.cos(phi)
-      );
-
-      mesh.userData = { file, folder, token };
-      scene.add(mesh);
-      nodeMeshes.push(mesh);
     }
 
     function onNodeClick() {
@@ -282,7 +252,6 @@
 
     function animate() {
       requestAnimationFrame(animate);
-      // Gentle auto-rotation
       scene.rotation.y += 0.001;
       renderer.render(scene, camera);
     }
